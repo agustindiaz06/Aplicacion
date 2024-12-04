@@ -1,0 +1,84 @@
+from flask import Flask, request, render_template_string, send_file
+import sqlite3
+import matplotlib.pyplot as plt
+from io import BytesIO
+
+app = Flask(__name__)
+
+DB_NAME = "sensores_wifi.db"
+
+
+# Crear base de datos si no existe
+def setup_database():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS mediciones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            humedad REAL,
+            temperatura REAL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+setup_database()
+
+
+@app.route('/endpoint', methods=['POST'])
+def recibir_datos():
+    try:
+        humedad = request.form['humedad']
+        temperatura = request.form['temperatura']
+      
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO mediciones (humedad, temperatura) VALUES (?, ?)", (humedad, temperatura))
+        conn.commit()
+        conn.close()
+        return "Datos almacenados correctamente.", 200
+    except Exception as e:
+        return str(e), 400
+
+
+@app.route('/grafico')
+def mostrar_grafico():
+    # Conectar a la base de datos y obtener los datos
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT timestamp, humedad, temperatura FROM mediciones ORDER BY timestamp LIMIT 25")
+    datos = cursor.fetchall()
+    conn.close()
+
+    if datos:
+        timestamps, humedades, temperaturas = zip(*datos)
+
+        print(len(humedades))
+
+        # Crear el gráfico
+        plt.figure(figsize=(10, 6))
+        plt.plot(timestamps, humedades, label="Humedad", color='blue', marker='o')
+        plt.plot(timestamps, temperaturas, label="Temperatura", color='red', marker='x')
+        plt.title('Evolución de la Humedad y Temperatura')
+        plt.xlabel('Fecha y Hora')
+        plt.ylabel('Valor')
+        plt.xticks(rotation=45)
+        plt.grid(True)
+        plt.legend()
+        plt.tight_layout()
+
+        # Guardar el gráfico en un objeto BytesIO
+        img = BytesIO()
+        plt.savefig(img, format='png')
+        img.seek(0)
+        
+        return send_file(img, mimetype='image/png')
+
+    return "No hay datos disponibles para graficar.", 404
+
+
+if __name__ == "__main__":
+    setup_database()
+    app.run(host='0.0.0.0', port=5010)
